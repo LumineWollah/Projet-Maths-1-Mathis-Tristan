@@ -15,14 +15,8 @@ def coupe(S, P, Fi, Fi1):
     crossS = edge[0] * toS[1] - edge[1] * toS[0]
     crossP = edge[0] * toP[1] - edge[1] * toP[0]
 
-    # Reject parallel or colinear case
-    if crossS == 0 and crossP == 0:
-        return False
-
-    # Real crossing only if opposite signs
-    return (crossS < 0 and crossP > 0) or (crossS > 0 and crossP < 0)
-
-
+    # One inside/boundary, one outside? Then they cross the boundary.
+    return (crossS >= 0 and crossP < 0) or (crossS < 0 and crossP >= 0)
 
 # ----------------------------------------------------
 # 2. intersection(S, P, Fi, Fi1)
@@ -48,7 +42,7 @@ def visible(S, Fi, Fi1):
     edge = sub(Fi1, Fi)
     toS = sub(S, Fi)
     cross = edge[0] * toS[1] - edge[1] * toS[0]
-    return cross > 0
+    return cross >= 0
 
 
 # ----------------------------------------------------
@@ -100,13 +94,17 @@ def sutherland_hodgman(PL, PW):
                 N2 += 1
 
         # Process last edge (S = last point, F = first)
-        if N2 > 0:
-            if coupe(S, F, Fi, Fi1):
-                I = intersection(S, F, Fi, Fi1)
-                PS.append(I)
-                N2 += 1
+            # If nothing survived this clipping edge, result is empty
+        if N2 == 0:
+            return []
 
-            PL = PS
-            N1 = N2
+        # Process last edge (S = last point, F = first)
+        if coupe(S, F, Fi, Fi1):
+            I = intersection(S, F, Fi, Fi1)
+            PS.append(I)
+            N2 += 1
+
+        PL = PS
+        N1 = N2
 
     return PL
