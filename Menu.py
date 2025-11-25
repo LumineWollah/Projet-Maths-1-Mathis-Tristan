@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 import Sutherland_Hodgman as SH
 import LCA
+
 # ==================================================================
 #             FENÊTRAGE – Sutherland-Hodgman
 # ==================================================================
@@ -13,19 +14,44 @@ class DecoupageWindow(tk.Toplevel):
 
         # Drawing options
         self.current_mode = "subject"   # or "clip"
-        self.subject_polygon = []
-        self.clip_polygon = []
-        self.result_polygon = []
 
-        self.current_drawing = []  # list of points being drawn
+        # Multiple polygons
+        self.subject_polygons = []   # list of polygons, each polygon = [(x, y), ...]
+        self.clip_polygons = []      # same for clipping windows
+        self.result_polygons = []    # list of clipped polygons
+
+        self.current_drawing = []    # polygon currently being drawn
 
         # UI + events
         self.create_widgets()
         self.bind_events()
 
-        # Dragging
-        self.dragging_point = None      # (poly_type, index)
-        self.dragging_offset = (0, 0)   # offset between click and vertex
+        # Dragging state
+        # dragging_point = (poly_type, poly_index, vertex_index)
+        #   poly_type: "subject" / "clip" / "current"
+        #   poly_index: int for subject/clip, None for "current"
+        self.dragging_point = None
+        self.dragging_offset = (0, 0)
+
+    # ------------------------------------------------------------
+    # Helper function
+    # ------------------------------------------------------------
+    def update_clipping(self):
+        """Recompute the clipped polygons dynamically for all pairs."""
+        self.result_polygons = []
+
+        if not self.subject_polygons or not self.clip_polygons:
+            return
+
+        for subj in self.subject_polygons:
+            if len(subj) < 3:
+                continue
+            for clip in self.clip_polygons:
+                if len(clip) < 3:
+                    continue
+                res = SH.sutherland_hodgman(subj, clip)
+                if res and len(res) >= 3:
+                    self.result_polygons.append(res)
 
     # ------------------------------------------------------------
     # UI creation
@@ -46,9 +72,6 @@ class DecoupageWindow(tk.Toplevel):
             top_frame, text="Fenêtre de découpe", command=self.set_mode_clip
         )
         self.btn_mode_clip.pack(side="left", padx=5)
-
-        ttk.Button(top_frame, text="Clipping !", command=self.perform_clipping) \
-            .pack(side="left", padx=20)
 
         ttk.Button(top_frame, text="Effacer tout", command=self.clear_all) \
             .pack(side="left", padx=20)
@@ -85,15 +108,15 @@ class DecoupageWindow(tk.Toplevel):
         # Try to find a vertex within 8px radius
         hit = self.find_nearest_vertex(x, y)
         if hit is not None:
-            poly_type, idx = hit
+            poly_type, poly_index, idx = hit
             self.dragging_point = hit
 
             # Compute drag offset for smooth dragging
             if poly_type == "subject":
-                px, py = self.subject_polygon[idx]
+                px, py = self.subject_polygons[poly_index][idx]
             elif poly_type == "clip":
-                px, py = self.clip_polygon[idx]
-            else:
+                px, py = self.clip_polygons[poly_index][idx]
+            else:  # "current"
                 px, py = self.current_drawing[idx]
 
             self.dragging_offset = (px - x, py - y)
@@ -104,14 +127,14 @@ class DecoupageWindow(tk.Toplevel):
         self.redraw()
 
     def right_click(self, event):
-        """Finish the polygon."""
+        """Finish the polygon currently being drawn and store it."""
         if len(self.current_drawing) < 3:
             return
 
         if self.current_mode == "subject":
-            self.subject_polygon = self.current_drawing[:]
+            self.subject_polygons.append(self.current_drawing[:])
         else:
-            self.clip_polygon = self.current_drawing[:]
+            self.clip_polygons.append(self.current_drawing[:])
 
         self.current_drawing = []
         self.redraw()
@@ -137,19 +160,22 @@ class DecoupageWindow(tk.Toplevel):
             self.canvas.create_oval(x-r, y-r, x+r, y+r,
                                     fill=color, outline=color, tags=tags)
 
+    # ------------------------------------------------------------
+    # Drag handlers
+    # ------------------------------------------------------------
     def drag_point(self, event):
         if not self.dragging_point:
             return
 
-        poly_type, idx = self.dragging_point
+        poly_type, poly_index, idx = self.dragging_point
         x = event.x + self.dragging_offset[0]
         y = event.y + self.dragging_offset[1]
 
         if poly_type == "subject":
-            self.subject_polygon[idx] = (x, y)
+            self.subject_polygons[poly_index][idx] = (x, y)
         elif poly_type == "clip":
-            self.clip_polygon[idx] = (x, y)
-        else:
+            self.clip_polygons[poly_index][idx] = (x, y)
+        else:  # "current"
             self.current_drawing[idx] = (x, y)
 
         self.redraw()
@@ -158,73 +184,68 @@ class DecoupageWindow(tk.Toplevel):
         self.dragging_point = None
 
     def find_nearest_vertex(self, x, y):
-        """Return (poly_type, index) if near a vertex, else None."""
+        """Return (poly_type, poly_index, index) if near a vertex, else None."""
         radius = 8  # selection tolerance
+        r2 = radius * radius
 
-        # Check subject polygon
-        for i, (px, py) in enumerate(self.subject_polygon):
-            if (px - x)**2 + (py - y)**2 <= radius**2:
-                return ("subject", i)
+        # Check all subject polygons
+        for pi, poly in enumerate(self.subject_polygons):
+            for vi, (px, py) in enumerate(poly):
+                if (px - x)**2 + (py - y)**2 <= r2:
+                    return ("subject", pi, vi)
 
-        # Check clipping polygon
-        for i, (px, py) in enumerate(self.clip_polygon):
-            if (px - x)**2 + (py - y)**2 <= radius**2:
-                return ("clip", i)
+        # Check all clipping polygons
+        for pi, poly in enumerate(self.clip_polygons):
+            for vi, (px, py) in enumerate(poly):
+                if (px - x)**2 + (py - y)**2 <= r2:
+                    return ("clip", pi, vi)
 
         # Check currently drawn polygon
-        for i, (px, py) in enumerate(self.current_drawing):
-            if (px - x)**2 + (py - y)**2 <= radius**2:
-                return ("current", i)
+        for vi, (px, py) in enumerate(self.current_drawing):
+            if (px - x)**2 + (py - y)**2 <= r2:
+                return ("current", None, vi)
 
         return None
 
     def redraw(self):
-        """Clear canvas and redraw everything."""
         self.canvas.delete("all")
 
-        # Subject polygon = blue
-        if self.subject_polygon:
-            self.draw_polygon(self.subject_polygon, color="blue")
+        # 1) recompute the clipping dynamically for all polygons
+        self.update_clipping()
 
-        # Clip window = red
-        if self.clip_polygon:
-            self.draw_polygon(self.clip_polygon, color="red")
+        # 2) draw subject polygons
+        for poly in self.subject_polygons:
+            self.draw_polygon(poly, color="green")
 
-        # Polygon currently being drawn = dashed gray
+        # 3) draw clipping windows
+        for poly in self.clip_polygons:
+            self.draw_polygon(poly, color="blue")
+
+        # 4) draw result polygons (if any)
+        for poly in self.result_polygons:
+            if poly and len(poly) >= 3:
+                flat = [coord for point in poly for coord in point]
+                self.canvas.create_polygon(
+                    flat,
+                    fill="red",
+                    outline=""
+                )
+                # Outline on top (optional)
+                self.draw_polygon(poly, color="red", width=2)
+
+        # 5) draw the polygon currently being drawn (if any)
         if self.current_drawing:
             self.draw_polygon(self.current_drawing, color="gray", dash=(4, 2))
-
-        # Result polygon = green
-        if self.result_polygon:
-            self.draw_polygon(self.result_polygon, color="green", width=3)
-
-    # ------------------------------------------------------------
-    # Clipping
-    # ------------------------------------------------------------
-    def perform_clipping(self):
-        if len(self.subject_polygon) < 3 or len(self.clip_polygon) < 3:
-            return
-
-        try:
-            self.result_polygon = SH.sutherland_hodgman(
-                self.subject_polygon,
-                self.clip_polygon
-            )
-        except Exception as e:
-            print("Error during clipping:", e)
-
-        self.redraw()
 
     # ------------------------------------------------------------
     # Clear
     # ------------------------------------------------------------
     def clear_all(self):
-        self.subject_polygon = []
-        self.clip_polygon = []
-        self.result_polygon = []
+        self.subject_polygons = []
+        self.clip_polygons = []
+        self.result_polygons = []
         self.current_drawing = []
         self.redraw()
-
 
 # ==================================================================
 #             REMPLISSAGE – réutilise le tracé existant
@@ -260,9 +281,6 @@ class RemplissageWindow(tk.Toplevel):
             top_frame,
             text="Remplissage (clic gauche = points/drag, clic droit = fermer un polygone)"
         ).pack(side="left", padx=8)
-
-        ttk.Button(top_frame, text="Remplir tous", command=self.remplir) \
-            .pack(side="left", padx=20)
 
         ttk.Button(top_frame, text="Effacer tout", command=self.clear_all) \
             .pack(side="left", padx=20)
