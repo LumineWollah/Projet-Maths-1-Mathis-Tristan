@@ -395,7 +395,7 @@ class RemplissageWindow(tk.Toplevel):
 
         for poly in self.polygons:
             if len(poly) >= 3:
-                self.fill_segments.extend(LCA.scanline_fill(poly))
+                self.fill_segments.extend(LCA.lca_fill(poly))
 
         self.redraw()
 
