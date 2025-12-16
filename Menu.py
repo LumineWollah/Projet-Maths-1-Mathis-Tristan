@@ -240,6 +240,8 @@ class RemplissageWindow(tk.Toplevel):
         self.current_drawing = []  # points du polygone en cours
         self.fill_segments = []    # segments de remplissage global
 
+        self.fill_rule = tk.StringVar(value="evenodd")
+
         # UI + events
         self.create_widgets()
         self.bind_events()
@@ -269,6 +271,19 @@ class RemplissageWindow(tk.Toplevel):
 
         self.canvas = tk.Canvas(self, width=900, height=600, bg="white")
         self.canvas.pack(pady=10)
+
+        ttk.Label(top_frame, text="Règle :").pack(side="left", padx=(20, 4))
+
+        ttk.Radiobutton(
+            top_frame, text="Pair/impair",
+            variable=self.fill_rule, value="evenodd",
+            command=self.remplir
+        ).pack(side="left")
+        ttk.Radiobutton(
+            top_frame, text="Enroulement non nul",
+            variable=self.fill_rule, value="winding",
+            command=self.remplir
+        ).pack(side="left", padx=(8, 0))
 
     def bind_events(self):
         self.canvas.bind("<ButtonPress-1>", self.start_drag_or_add_point)
@@ -395,7 +410,7 @@ class RemplissageWindow(tk.Toplevel):
 
         for poly in self.polygons:
             if len(poly) >= 3:
-                self.fill_segments.extend(LCA.lca_fill(poly))
+                self.fill_segments.extend(LCA.lca_fill(poly, rule=self.fill_rule.get()))
 
         self.redraw()
 
