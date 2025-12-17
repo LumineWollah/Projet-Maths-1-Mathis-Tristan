@@ -21,7 +21,7 @@ def lca_fill(polygon, rule="evenodd"):
 
 
 # ============================================================
-# 1) EVEN-ODD : ton algo LCA (quasi inchangé)
+# 1) EVEN-ODD : LCA
 # ============================================================
 def _fill_evenodd_lca(polygon):
     if len(polygon) < 3:

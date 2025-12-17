@@ -139,7 +139,7 @@ class DecoupageWindow(tk.Toplevel):
         self.zoom_at(1 / 1.1, event.x, event.y)
 
     # ------------------------------------------------------------
-    # Pan handlers (NEW)
+    # Pan handlers
     # ------------------------------------------------------------
     def start_pan(self, event):
         self.panning = True
@@ -362,7 +362,7 @@ class DecoupageWindow(tk.Toplevel):
 
 
 # ==================================================================
-#             REMPLISSAGE – réutilise le tracé existant
+#             REMPLISSAGE
 # ==================================================================
 class RemplissageWindow(tk.Toplevel):
     def __init__(self, master=None):
