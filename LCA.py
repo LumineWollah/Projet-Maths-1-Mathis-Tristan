@@ -4,7 +4,7 @@ def lca_fill(polygon, rule="evenodd"):
     """
     Remplissage lca.
     rule:
-      - "evenodd"  : nombre d'intersections (pair/impair)  -> ton LCA actuel
+      - "evenodd"  : nombre d'intersections (pair/impair)
       - "winding"  : nombre d'enroulement non nul (non-zero winding)
     Retour : liste de segments (y, x1, x2)
     """
