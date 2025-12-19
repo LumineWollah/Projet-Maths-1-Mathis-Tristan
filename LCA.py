@@ -2,7 +2,7 @@ import math
 
 def lca_fill(polygon, rule="evenodd"):
     """
-    Remplissage scanline.
+    Remplissage lca.
     rule:
       - "evenodd"  : nombre d'intersections (pair/impair)  -> ton LCA actuel
       - "winding"  : nombre d'enroulement non nul (non-zero winding)
