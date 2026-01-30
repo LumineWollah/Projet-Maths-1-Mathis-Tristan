@@ -3,6 +3,7 @@ from tkinter import ttk
 
 import Sutherland_Hodgman as SH
 import LCA
+import Bezier as BZ
 
 
 # ==================================================================
@@ -382,13 +383,9 @@ class RemplissageWindow(tk.Toplevel):
         self.bind_events()
 
         # Drag
-        # ("poly", poly_index, vertex_index) ou ("current", index)
         self.dragging_point = None
         self.dragging_offset = (0, 0)
 
-    # ------------------------------------------------------------
-    # UI
-    # ------------------------------------------------------------
     def create_widgets(self):
         top_frame = ttk.Frame(self)
         top_frame.pack(side="top", fill="x", pady=8)
@@ -423,9 +420,6 @@ class RemplissageWindow(tk.Toplevel):
         self.canvas.bind("<ButtonRelease-1>", self.release_drag)
         self.canvas.bind("<Button-3>", self.right_click)
 
-    # ------------------------------------------------------------
-    # Sélection / ajout point
-    # ------------------------------------------------------------
     def start_drag_or_add_point(self, event):
         x, y = event.x, event.y
 
@@ -444,24 +438,17 @@ class RemplissageWindow(tk.Toplevel):
             self.dragging_offset = (px - x, py - y)
             return
 
-        # Ajout d'un nouveau point
         self.current_drawing.append((x, y))
         self.redraw()
 
-    # ------------------------------------------------------------
-    # Fermeture du polygone courant
-    # ------------------------------------------------------------
     def right_click(self, event):
         if len(self.current_drawing) < 3:
             return
 
         self.polygons.append(self.current_drawing[:])
         self.current_drawing = []
-        self.remplir()  # recalcul du remplissage global
+        self.remplir()
 
-    # ------------------------------------------------------------
-    # Drag
-    # ------------------------------------------------------------
     def drag_point(self, event):
         if not self.dragging_point:
             return
@@ -473,7 +460,7 @@ class RemplissageWindow(tk.Toplevel):
         if kind == "poly":
             poly_idx, idx = self.dragging_point[1], self.dragging_point[2]
             self.polygons[poly_idx][idx] = (x, y)
-            self.remplir()  # MAJ en temps réel
+            self.remplir()
         else:
             idx = self.dragging_point[1]
             self.current_drawing[idx] = (x, y)
@@ -482,32 +469,24 @@ class RemplissageWindow(tk.Toplevel):
     def release_drag(self, event):
         self.dragging_point = None
 
-    # ------------------------------------------------------------
-    # Cherche le sommet le plus proche
-    # ------------------------------------------------------------
     def find_nearest_vertex(self, x, y):
         radius = 8
 
-        # Polygones déjà créés
         for pi, poly in enumerate(self.polygons):
             for vi, (px, py) in enumerate(poly):
-                if (px - x)**2 + (py - y)**2 <= radius**2:
+                if (px - x) ** 2 + (py - y) ** 2 <= radius ** 2:
                     return ("poly", pi, vi)
 
-        # Polygone en cours
         for i, (px, py) in enumerate(self.current_drawing):
-            if (px - x)**2 + (py - y)**2 <= radius**2:
+            if (px - x) ** 2 + (py - y) ** 2 <= radius ** 2:
                 return ("current", i)
 
         return None
 
-    # ------------------------------------------------------------
-    # Dessin
-    # ------------------------------------------------------------
     def draw_polygon(self, points, color, dash=None):
         if len(points) >= 2:
             for i in range(len(points) - 1):
-                self.canvas.create_line(*points[i], *points[i+1],
+                self.canvas.create_line(*points[i], *points[i + 1],
                                         fill=color, width=2, dash=dash)
 
         if len(points) >= 3:
@@ -516,27 +495,21 @@ class RemplissageWindow(tk.Toplevel):
 
         for x, y in points:
             r = 4
-            self.canvas.create_oval(x-r, y-r, x+r, y+r,
+            self.canvas.create_oval(x - r, y - r, x + r, y + r,
                                     fill=color, outline=color)
 
     def redraw(self):
         self.canvas.delete("all")
 
-        # 1) Remplissage
         for y, x1, x2 in self.fill_segments:
             self.canvas.create_line(x1, y, x2, y, fill="orange")
 
-        # 2) Polygones fermés
         for poly in self.polygons:
             self.draw_polygon(poly, color="blue")
 
-        # 3) Polygone en cours
         if self.current_drawing:
             self.draw_polygon(self.current_drawing, color="gray", dash=(4, 2))
 
-    # ------------------------------------------------------------
-    # Remplissage global (LCA)
-    # ------------------------------------------------------------
     def remplir(self):
         self.fill_segments = []
 
@@ -546,14 +519,216 @@ class RemplissageWindow(tk.Toplevel):
 
         self.redraw()
 
-    # ------------------------------------------------------------
-    # Clear
-    # ------------------------------------------------------------
     def clear_all(self):
         self.polygons = []
         self.current_drawing = []
         self.fill_segments = []
         self.redraw()
+
+# ==================================================================
+#                               BEZIER
+# ==================================================================
+class BezierWindow(tk.Toplevel):
+    def __init__(self, master=None):
+        super().__init__(master)
+        self.title("Courbe de Bézier")
+        self.geometry("1000x700")
+
+        # Control polyline (points de contrôle)
+        self.control_polyline = []   # [(x,y), ...]
+        self.curve_points = []       # points échantillonnés de la courbe
+
+        # Drag
+        self.dragging_point = None   # index du point déplacé
+        self.dragging_offset = (0, 0)
+
+        # Slider = pas d'échantillonnage
+        self.step = tk.DoubleVar(value=0.01)
+
+        # Auto redraw
+        self.auto_redraw = tk.BooleanVar(value=False)
+
+        self.create_widgets()
+        self.bind_events()
+        self.redraw()
+
+    # ------------------------------------------------------------
+    # UI
+    # ------------------------------------------------------------
+    def create_widgets(self):
+        top = ttk.Frame(self)
+        top.pack(side="top", fill="x", pady=8)
+
+        ttk.Label(
+            top,
+            text="Clic gauche = ajouter/déplacer • Clic droit = finir la polyline"
+        ).pack(side="left", padx=8)
+
+        ttk.Button(
+            top, text="Tracer la courbe", command=self.compute_curve
+        ).pack(side="left", padx=10)
+
+        ttk.Button(
+            top, text="Effacer tout", command=self.clear_all
+        ).pack(side="left", padx=10)
+
+        ttk.Label(top, text="Ratio (pas) :").pack(side="left", padx=(20, 5))
+
+        self.slider = ttk.Scale(
+            top,
+            from_=0.01,
+            to=0.5,
+            orient="horizontal",
+            variable=self.step,
+            command=lambda _v: self.on_slider()
+        )
+        self.slider.pack(side="left", padx=5)
+
+        self.step_label = ttk.Label(top, text=f"{self.step.get():.3f}")
+        self.step_label.pack(side="left", padx=5)
+
+        ttk.Checkbutton(
+            top,
+            text="Auto",
+            variable=self.auto_redraw
+        ).pack(side="left", padx=(10, 0))
+
+        self.canvas = tk.Canvas(self, width=900, height=600, bg="white")
+        self.canvas.pack(pady=10)
+
+    # ------------------------------------------------------------
+    # Events
+    # ------------------------------------------------------------
+    def bind_events(self):
+        self.canvas.bind("<ButtonPress-1>", self.start_drag_or_add)
+        self.canvas.bind("<B1-Motion>", self.drag)
+        self.canvas.bind("<ButtonRelease-1>", self.release_drag)
+        self.canvas.bind("<Button-3>", self.finish_polyline)
+
+    # ------------------------------------------------------------
+    # Slider
+    # ------------------------------------------------------------
+    def on_slider(self):
+        self.step_label.config(text=f"{self.step.get():.3f}")
+
+        if self.auto_redraw.get():
+            self.compute_curve()
+
+    # ------------------------------------------------------------
+    # Clear
+    # ------------------------------------------------------------
+    def clear_all(self):
+        self.control_polyline = []
+        self.curve_points = []
+        self.dragging_point = None
+        self.redraw()
+
+    # ------------------------------------------------------------
+    # Utils
+    # ------------------------------------------------------------
+    def find_nearest(self, x, y):
+        r2 = 8 * 8
+        for i, (px, py) in enumerate(self.control_polyline):
+            if (px - x) ** 2 + (py - y) ** 2 <= r2:
+                return i
+        return None
+
+    # ------------------------------------------------------------
+    # Mouse logic
+    # ------------------------------------------------------------
+    def start_drag_or_add(self, event):
+        x, y = event.x, event.y
+        hit = self.find_nearest(x, y)
+
+        if hit is not None:
+            self.dragging_point = hit
+            px, py = self.control_polyline[hit]
+            self.dragging_offset = (px - x, py - y)
+            return
+
+        self.control_polyline.append((x, y))
+
+        if self.auto_redraw.get():
+            self.compute_curve()
+        else:
+            self.curve_points = []
+            self.redraw()
+
+    def drag(self, event):
+        if self.dragging_point is None:
+            return
+
+        i = self.dragging_point
+        x = event.x + self.dragging_offset[0]
+        y = event.y + self.dragging_offset[1]
+        self.control_polyline[i] = (x, y)
+
+        if self.auto_redraw.get():
+            self.compute_curve()
+        else:
+            self.curve_points = []
+            self.redraw()
+
+    def release_drag(self, event):
+        self.dragging_point = None
+
+    def finish_polyline(self, event):
+        # Pas de traitement spécial : la polyline reste telle quelle
+        self.redraw()
+
+    # ------------------------------------------------------------
+    # Bézier
+    # ------------------------------------------------------------
+    def compute_curve(self):
+        if len(self.control_polyline) < 2:
+            self.curve_points = []
+            self.redraw()
+            return
+
+        step = float(self.step.get())
+        self.curve_points = BZ.bezier_polyline(self.control_polyline, step=step)
+        self.redraw()
+
+    # ------------------------------------------------------------
+    # Drawing
+    # ------------------------------------------------------------
+    def draw_polyline(self, pts, color, dash=None, width=2):
+        if len(pts) >= 2:
+            for i in range(len(pts) - 1):
+                self.canvas.create_line(
+                    *pts[i], *pts[i + 1],
+                    fill=color, width=width, dash=dash
+                )
+
+        for x, y in pts:
+            r = 4
+            self.canvas.create_oval(
+                x - r, y - r, x + r, y + r,
+                fill=color, outline=color
+            )
+
+    def redraw(self):
+        self.canvas.delete("all")
+
+        # Polyline de contrôle
+        if self.control_polyline:
+            self.draw_polyline(
+                self.control_polyline,
+                color="gray",
+                dash=(4, 2),
+                width=2
+            )
+
+        # Courbe de Bézier
+        if self.curve_points and len(self.curve_points) >= 2:
+            for i in range(len(self.curve_points) - 1):
+                self.canvas.create_line(
+                    *self.curve_points[i],
+                    *self.curve_points[i + 1],
+                    fill="purple",
+                    width=3
+                )
+
 
 # ==================================================================
 #                               MENU
@@ -569,12 +744,16 @@ class MainMenu(tk.Tk):
 
         ttk.Button(self, text="Découpage", command=self.open_decoupage).pack(pady=10)
         ttk.Button(self, text="Remplissage", command=self.open_remplissage).pack(pady=10)
+        ttk.Button(self, text="Courbe de bézier", command=self.open_bezier).pack(pady=10)
 
     def open_decoupage(self):
         DecoupageWindow(self)
 
     def open_remplissage(self):
         RemplissageWindow(self)
+
+    def open_bezier(self):
+        BezierWindow(self)
 
 
 if __name__ == "__main__":
