@@ -525,210 +525,295 @@ class RemplissageWindow(tk.Toplevel):
         self.fill_segments = []
         self.redraw()
 
-# ==================================================================
-#                               BEZIER
-# ==================================================================
+import math
+
 class BezierWindow(tk.Toplevel):
     def __init__(self, master=None):
         super().__init__(master)
-        self.title("Courbe de Bézier")
-        self.geometry("1000x700")
+        self.title("Bézier")
+        self.geometry("1200x800")
 
-        # Control polyline (points de contrôle)
-        self.control_polyline = []   # [(x,y), ...]
-        self.curve_points = []       # points échantillonnés de la courbe
-
-        # Drag
-        self.dragging_point = None   # index du point déplacé
+        # Données
+        self.all_curves = [] 
+        self.current_curve_idx = -1 
+        self.dragging_point = None 
         self.dragging_offset = (0, 0)
 
-        # Slider = pas d'échantillonnage
         self.step = tk.DoubleVar(value=0.01)
-
-        # Auto redraw
-        self.auto_redraw = tk.BooleanVar(value=False)
+        self.use_casteljau = tk.BooleanVar(value=True)
 
         self.create_widgets()
         self.bind_events()
         self.redraw()
 
-    # ------------------------------------------------------------
-    # UI
-    # ------------------------------------------------------------
     def create_widgets(self):
         top = ttk.Frame(self)
-        top.pack(side="top", fill="x", pady=8)
+        top.pack(side="top", fill="x", pady=5)
 
-        ttk.Label(
-            top,
-            text="Clic gauche = ajouter/déplacer • Clic droit = finir la polyline"
-        ).pack(side="left", padx=8)
+        # les instructions
+        txt = "Souris : Clic Gauche (Point) | Clic Droit (Nouv. Courbe)  ||  Clavier : Flèches (Bouger) | A/E (Rotation) | S/D (Zoom)"
+        ttk.Label(top, text=txt).pack(side="left", padx=5)
 
-        ttk.Button(
-            top, text="Tracer la courbe", command=self.compute_curve
-        ).pack(side="left", padx=10)
+        # boutons
+        ttk.Button(top, text="Suppr Courbe", command=self.delete_current_curve).pack(side="left", padx=5)
+        ttk.Button(top, text="Effacer Tout", command=self.clear_all).pack(side="left", padx=5)
+        
+        # choix algo
+        ttk.Checkbutton(top, text="Algo Casteljau", variable=self.use_casteljau, command=self.redraw).pack(side="left", padx=10)
+        
+        # pour doubler le point
+        ttk.Button(top, text="Doubler Point", command=self.duplicate_point).pack(side="left", padx=5)
 
-        ttk.Button(
-            top, text="Effacer tout", command=self.clear_all
-        ).pack(side="left", padx=10)
-
-        ttk.Label(top, text="Ratio (pas) :").pack(side="left", padx=(20, 5))
-
+        # precision de la courbe
+        ttk.Label(top, text="Précision :").pack(side="left", padx=(10, 2))
         self.slider = ttk.Scale(
-            top,
-            from_=0.01,
-            to=0.5,
-            orient="horizontal",
-            variable=self.step,
-            command=lambda _v: self.on_slider()
+            top, from_=0.005, to=0.2, orient="horizontal", 
+            variable=self.step, 
+            command=lambda _: self.redraw()
         )
         self.slider.pack(side="left", padx=5)
 
-        self.step_label = ttk.Label(top, text=f"{self.step.get():.3f}")
-        self.step_label.pack(side="left", padx=5)
+        self.canvas = tk.Canvas(self, width=1100, height=700, bg="white")
+        self.canvas.pack(pady=5)
 
-        ttk.Checkbutton(
-            top,
-            text="Auto",
-            variable=self.auto_redraw
-        ).pack(side="left", padx=(10, 0))
-
-        self.canvas = tk.Canvas(self, width=900, height=600, bg="white")
-        self.canvas.pack(pady=10)
-
-    # ------------------------------------------------------------
-    # Events
-    # ------------------------------------------------------------
     def bind_events(self):
-        self.canvas.bind("<ButtonPress-1>", self.start_drag_or_add)
-        self.canvas.bind("<B1-Motion>", self.drag)
-        self.canvas.bind("<ButtonRelease-1>", self.release_drag)
-        self.canvas.bind("<Button-3>", self.finish_polyline)
+        # souris
+        self.canvas.bind("<ButtonPress-1>", self.on_click_left)
+        self.canvas.bind("<B1-Motion>", self.on_drag)
+        self.canvas.bind("<ButtonRelease-1>", self.on_release)
+        self.canvas.bind("<Button-3>", self.start_new_curve)
+        
+        # self.canvas.bind("<Button-1>", lambda e: self.canvas.focus_set())
+        self.canvas.bind("<KeyPress>", self.on_key_press)
+        self.bind("<Delete>", lambda e: self.delete_selected_point())
 
-    # ------------------------------------------------------------
-    # Slider
-    # ------------------------------------------------------------
-    def on_slider(self):
-        self.step_label.config(text=f"{self.step.get():.3f}")
+    # c'est des maths
 
-        if self.auto_redraw.get():
-            self.compute_curve()
+    def get_point_casteljau(self, points, t):
+        work = list(points)
+        n = len(work)
+        for k in range(1, n):
+            for i in range(n - k):
+                p1 = work[i]
+                p2 = work[i+1]
+                nx = (1-t)*p1[0] + t*p2[0]
+                ny = (1-t)*p1[1] + t*p2[1]
+                work[i] = (nx, ny)
+        return work[0]
+        # casteljau le boss
 
-    # ------------------------------------------------------------
-    # Clear
-    # ------------------------------------------------------------
-    def clear_all(self):
-        self.control_polyline = []
-        self.curve_points = []
-        self.dragging_point = None
+    def get_point_bernstein(self, points, t):
+        n = len(points) - 1
+        x, y = 0, 0
+        for i, pos in enumerate(points):
+            binom = math.comb(n, i)
+            b = binom * (t**i) * ((1-t)**(n-i))
+            x += pos[0] * b
+            y += pos[1] * b
+        return (x, y)
+        #bernstein aussi
+
+    # on attaque les courbes
+
+    def start_new_curve(self, event=None):
+        self.all_curves.append([])
+        self.current_curve_idx = len(self.all_curves) - 1
         self.redraw()
 
-    # ------------------------------------------------------------
-    # Utils
-    # ------------------------------------------------------------
-    def find_nearest(self, x, y):
-        r2 = 8 * 8
-        for i, (px, py) in enumerate(self.control_polyline):
-            if (px - x) ** 2 + (py - y) ** 2 <= r2:
-                return i
-        return None
+    def delete_current_curve(self):
+        if 0 <= self.current_curve_idx < len(self.all_curves):
+            self.all_curves.pop(self.current_curve_idx)
+            self.current_curve_idx = len(self.all_curves) - 1
+            self.dragging_point = None
+            self.redraw()
 
-    # ------------------------------------------------------------
-    # Mouse logic
-    # ------------------------------------------------------------
-    def start_drag_or_add(self, event):
+    def duplicate_point(self):
+        if self.dragging_point:
+            c, p = self.dragging_point
+            if c < len(self.all_curves):
+                pt = self.all_curves[c][p]
+                self.all_curves[c].insert(p+1, pt) # on insère une copie juste après
+                self.redraw()
+
+    # gestion souris
+
+    def on_click_left(self, event):
+        self.canvas.focus_set() # active le clavier
         x, y = event.x, event.y
         hit = self.find_nearest(x, y)
 
-        if hit is not None:
+        if hit:
+            # selection d'un point existant
             self.dragging_point = hit
-            px, py = self.control_polyline[hit]
-            self.dragging_offset = (px - x, py - y)
-            return
-
-        self.control_polyline.append((x, y))
-
-        if self.auto_redraw.get():
-            self.compute_curve()
+            self.current_curve_idx = hit[0]
+            cur_pt = self.all_curves[hit[0]][hit[1]]
+            self.dragging_offset = (cur_pt[0] - x, cur_pt[1] - y)
         else:
-            self.curve_points = []
-            self.redraw()
+            # création nouveau point
+            if not self.all_curves:
+                self.start_new_curve()
+            self.all_curves[self.current_curve_idx].append((x, y))
+            # le nouveau point devient sélectionné
+            self.dragging_point = (self.current_curve_idx, len(self.all_curves[self.current_curve_idx])-1)
+        self.redraw()
 
-    def drag(self, event):
-        if self.dragging_point is None:
-            return
+    def on_drag(self, event):
+        if self.dragging_point:
+            c, p = self.dragging_point
+            if c < len(self.all_curves) and p < len(self.all_curves[c]):
+                nx = event.x + self.dragging_offset[0]
+                ny = event.y + self.dragging_offset[1]
+                self.all_curves[c][p] = (nx, ny)
+                self.redraw()
 
-        i = self.dragging_point
-        x = event.x + self.dragging_offset[0]
-        y = event.y + self.dragging_offset[1]
-        self.control_polyline[i] = (x, y)
+    def delete_selected_point(self):
+        if self.dragging_point:
+            c, p = self.dragging_point
+            if c < len(self.all_curves) and p < len(self.all_curves[c]):
+                self.all_curves[c].pop(p)
+                if not self.all_curves[c]: # si courbe vide, on supprime
+                    self.all_curves.pop(c)
+                    self.current_curve_idx = len(self.all_curves) - 1
+                self.dragging_point = None
+                self.redraw()
 
-        if self.auto_redraw.get():
-            self.compute_curve()
-        else:
-            self.curve_points = []
-            self.redraw()
+    def on_release(self, event):
+        pass
 
-    def release_drag(self, event):
+    # les matrices
+
+    def get_centroid(self, curve):
+        if not curve: return (0,0)
+        sx = sum(p[0] for p in curve)
+        sy = sum(p[1] for p in curve)
+        n = len(curve)
+        return (sx/n, sy/n)
+
+    def apply_matrix(self, a, b, c, d, tx, ty):
+        if self.current_curve_idx == -1: return
+        curve = self.all_curves[self.current_curve_idx]
+        if not curve: return
+
+        cx, cy = self.get_centroid(curve)
+        new_pts = []
+        for x, y in curve:
+            #on centre
+            lx = x - cx
+            ly = y - cy
+            #on appliquer Matrice
+            nx = a*lx + b*ly
+            ny = c*lx + d*ly
+            # on remplace et translation
+            final_x = nx + cx + tx
+            final_y = ny + cy + ty
+            new_pts.append((final_x, final_y))
+        
+        self.all_curves[self.current_curve_idx] = new_pts
+        self.redraw()
+
+    def on_key_press(self, event):
+        if self.current_curve_idx == -1: return
+        k = event.keysym.lower()
+        dist = 10
+
+        # translation
+        if k == 'left':   self.apply_matrix(1,0,0,1, -dist, 0)
+        elif k == 'right': self.apply_matrix(1,0,0,1, dist, 0)
+        elif k == 'up':    self.apply_matrix(1,0,0,1, 0, -dist)
+        elif k == 'down':  self.apply_matrix(1,0,0,1, 0, dist)
+        
+        # partie rotation
+        # sens horaire
+        elif k == 'e':
+            th = 0.1 # environ 5 degrés
+            co, si = math.cos(th), math.sin(th)
+            self.apply_matrix(co, -si, si, co, 0, 0)
+        
+        # sens anti horarie
+        elif k == 'a':
+            th = -0.1 
+            co, si = math.cos(th), math.sin(th)
+            self.apply_matrix(co, -si, si, co, 0, 0)
+            
+        # grossir
+        elif k == 's': 
+            self.apply_matrix(1.1, 0, 0, 1.1, 0, 0)
+            
+        # retrecir
+        elif k == 'd': 
+            self.apply_matrix(0.9, 0, 0, 0.9, 0, 0)
+        
+        # cisaillement
+        elif k == 'c': self.apply_matrix(1, 0.2, 0, 1, 0, 0)
+
+    # le dessin
+
+    def find_nearest(self, x, y):
+        best = None
+        min_d = 100
+        for c_idx, curve in enumerate(self.all_curves):
+            for p_idx, pt in enumerate(curve):
+                d = (pt[0]-x)**2 + (pt[1]-y)**2
+                if d < min_d:
+                    min_d = d
+                    best = (c_idx, p_idx)
+        return best
+
+    def clear_all(self):
+        self.all_curves = []
+        self.current_curve_idx = -1
         self.dragging_point = None
-
-    def finish_polyline(self, event):
-        # Pas de traitement spécial : la polyline reste telle quelle
         self.redraw()
-
-    # ------------------------------------------------------------
-    # Bézier
-    # ------------------------------------------------------------
-    def compute_curve(self):
-        if len(self.control_polyline) < 2:
-            self.curve_points = []
-            self.redraw()
-            return
-
-        step = float(self.step.get())
-        self.curve_points = BZ.bezier_polyline(self.control_polyline, step=step)
-        self.redraw()
-
-    # ------------------------------------------------------------
-    # Drawing
-    # ------------------------------------------------------------
-    def draw_polyline(self, pts, color, dash=None, width=2):
-        if len(pts) >= 2:
-            for i in range(len(pts) - 1):
-                self.canvas.create_line(
-                    *pts[i], *pts[i + 1],
-                    fill=color, width=width, dash=dash
-                )
-
-        for x, y in pts:
-            r = 4
-            self.canvas.create_oval(
-                x - r, y - r, x + r, y + r,
-                fill=color, outline=color
-            )
 
     def redraw(self):
         self.canvas.delete("all")
+        
+        # on recup la valeur du slider
+        try:
+            step_val = self.step.get()
+            if step_val <= 0.001: step_val = 0.01 # par securité division par zero
+        except:
+            step_val = 0.01
 
-        # Polyline de contrôle
-        if self.control_polyline:
-            self.draw_polyline(
-                self.control_polyline,
-                color="gray",
-                dash=(4, 2),
-                width=2
-            )
+        for c_idx, curve in enumerate(self.all_curves):
+            is_sel = (c_idx == self.current_curve_idx)
+            col = "purple" if is_sel else "gray"
+            
+            # si pas assez de points, on dessine juste les points
+            if len(curve) < 2:
+                for pt in curve:
+                    self.canvas.create_oval(pt[0]-2, pt[1]-2, pt[0]+2, pt[1]+2, fill=col)
+                continue
 
-        # Courbe de Bézier
-        if self.curve_points and len(self.curve_points) >= 2:
-            for i in range(len(self.curve_points) - 1):
-                self.canvas.create_line(
-                    *self.curve_points[i],
-                    *self.curve_points[i + 1],
-                    fill="purple",
-                    width=3
-                )
+            # polygone de contrôle (Lignes grises)
+            for i in range(len(curve)-1):
+                p1, p2 = curve[i], curve[i+1]
+                self.canvas.create_line(p1[0], p1[1], p2[0], p2[1], fill="lightgray", dash=(2,2))
 
+            #la courbe de Bézier
+            # on calcule le nombre de segments selon le slider
+            nb_seg = int(1.0 / step_val)
+            prev = curve[0]
+            
+            for i in range(1, nb_seg + 1):
+                t = i * step_val
+                if t > 1.0: t = 1.0
+                
+                # Choix de l'algo
+                if self.use_casteljau.get():
+                    curr = self.get_point_casteljau(curve, t)
+                else:
+                    curr = self.get_point_bernstein(curve, t)
+                
+                self.canvas.create_line(prev[0], prev[1], curr[0], curr[1], fill=col, width=2)
+                prev = curr
+
+            #Points de contrôle
+            for p_idx, pt in enumerate(curve):
+                is_pt_sel = (self.dragging_point == (c_idx, p_idx))
+                r = 6 if is_pt_sel else 4
+                outline = "red" if is_pt_sel else "black"
+                self.canvas.create_oval(pt[0]-r, pt[1]-r, pt[0]+r, pt[1]+r, fill=col, outline=outline)
 
 # ==================================================================
 #                               MENU
