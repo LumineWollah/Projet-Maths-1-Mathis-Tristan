@@ -1,9 +1,11 @@
 import tkinter as tk
 from tkinter import ttk
+import math
 
 import Sutherland_Hodgman as SH
 import LCA
 import Bezier as BZ
+import BSpline_NURBS as BSN
 
 
 # ==================================================================
@@ -525,8 +527,6 @@ class RemplissageWindow(tk.Toplevel):
         self.fill_segments = []
         self.redraw()
 
-import math
-
 class BezierWindow(tk.Toplevel):
     def __init__(self, master=None):
         super().__init__(master)
@@ -830,6 +830,7 @@ class MainMenu(tk.Tk):
         ttk.Button(self, text="Découpage", command=self.open_decoupage).pack(pady=10)
         ttk.Button(self, text="Remplissage", command=self.open_remplissage).pack(pady=10)
         ttk.Button(self, text="Courbe de bézier", command=self.open_bezier).pack(pady=10)
+        ttk.Button(self,text="BSplines / NURBS", command=self.open_bspline).pack()
 
     def open_decoupage(self):
         DecoupageWindow(self)
@@ -839,6 +840,9 @@ class MainMenu(tk.Tk):
 
     def open_bezier(self):
         BezierWindow(self)
+        
+    def open_bspline(self):
+        BSN.BSplineNURBSWindow(self)
 
 
 if __name__ == "__main__":
