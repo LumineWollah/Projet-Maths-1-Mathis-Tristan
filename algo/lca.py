@@ -1,11 +1,12 @@
 import math
 
+
 def lca_fill(polygon, rule="evenodd"):
     """
-    Remplissage lca.
+    Remplissage par scanline.
     rule:
       - "evenodd"  : nombre d'intersections (pair/impair)
-      - "winding"  : nombre d'enroulement non nul (non-zero winding)
+      - "winding"  : enroulement non nul (non-zero winding)
     Retour : liste de segments (y, x1, x2)
     """
     if len(polygon) < 3:
@@ -20,9 +21,6 @@ def lca_fill(polygon, rule="evenodd"):
         raise ValueError(f"Unknown fill rule: {rule}")
 
 
-# ============================================================
-# 1) EVEN-ODD : LCA
-# ============================================================
 def _fill_evenodd_lca(polygon):
     if len(polygon) < 3:
         return []
@@ -56,7 +54,7 @@ def _fill_evenodd_lca(polygon):
     leb.sort(key=lambda e: (e["ymin"], e["x"], e["dx"]))
 
     y_start = int(math.ceil(min(e["ymin"] for e in leb)))
-    y_end   = int(math.floor(max(e["ymax"] for e in leb)))
+    y_end = int(math.floor(max(e["ymax"] for e in leb)))
 
     lca = []
     segs = []
@@ -90,51 +88,37 @@ def _fill_evenodd_lca(polygon):
     return segs
 
 
-# ============================================================
-# 2) WINDING (non-zero) : gestion polygones croisés
-# ============================================================
 def _fill_winding_scanline(polygon):
-    """
-    Non-zero winding rule.
-    On parcourt chaque scanline, on calcule toutes les intersections (x, delta_wind),
-    on trie par x, puis on remplit les intervalles où winding != 0.
-    """
     n = len(polygon)
     if n < 3:
         return []
 
-    # Plage Y
     ys = [p[1] for p in polygon]
     y_start = int(math.floor(min(ys)))
-    y_end   = int(math.ceil(max(ys)))
+    y_end = int(math.ceil(max(ys)))
 
     segs = []
 
-    # On utilise y + 0.5 pour éviter les ambiguïtés exactes sur les sommets
     for y in range(y_start, y_end + 1):
         y_scan = y + 0.5
-
-        inter = []  # [(x, deltaWind), ...]
+        inter = []
 
         for i in range(n):
             x1, y1 = polygon[i]
             x2, y2 = polygon[(i + 1) % n]
 
             if y1 == y2:
-                continue  # horizontale ignorée
+                continue
 
             ymin = min(y1, y2)
             ymax = max(y1, y2)
 
-            # convention demi-ouverte [ymin, ymax[
             if not (ymin <= y_scan < ymax):
                 continue
 
-            # intersection X
             t = (y_scan - y1) / (y2 - y1)
             x = x1 + t * (x2 - x1)
 
-            # delta winding : +1 si l'arête monte, -1 si elle descend
             delta = 1 if y2 > y1 else -1
             inter.append((x, delta))
 

@@ -30,7 +30,6 @@ def intersection(S, P, Fi, Fi1):
 
     denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
     if denom == 0:
-        # parallel (degenerate case) -> return S safely
         return S
 
     t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
@@ -41,17 +40,12 @@ def intersection(S, P, Fi, Fi1):
 # 3. visible(S, Fi, Fi1)
 # ----------------------------------------------------
 def visible(S, Fi, Fi1):
-    # Point S is "inside" if it is on the left side of edge Fi->Fi1
     edge = sub(Fi1, Fi)
     toS = sub(S, Fi)
     cross = edge[0] * toS[1] - edge[1] * toS[0]
     return cross >= 0
 
 
-# ----------------------------------------------------
-# Orientation helper: signed area (not closed polygon)
-# >0 CCW, <0 CW
-# ----------------------------------------------------
 def polygon_area(poly):
     if len(poly) < 3:
         return 0.0
@@ -64,28 +58,20 @@ def polygon_area(poly):
     return a / 2.0
 
 
-# ----------------------------------------------------
-# Sutherland–Hodgman (fenêtre convexe)
-# Uses ONLY coupe / intersection / visible as required
-# ----------------------------------------------------
 def sutherland_hodgman(PL, PW):
     """
-    PL : list of vertices [(x,y), ...] (subject polygon)
-    PW : list of vertices [(x,y), ...] (clipping window polygon)
-         (convex required)
-    Returns: clipped polygon as list of vertices [(x,y), ...] or [].
+    PL : polygone sujet [(x,y), ...]
+    PW : fenêtre de découpe convexe [(x,y), ...]
+    Retourne le polygone découpé ou [].
     """
-
     if len(PL) < 3 or len(PW) < 3:
         return []
 
-    # Ensure window is CCW (required by visible() definition)
     if polygon_area(PW) < 0:
         PW = list(reversed(PW))
 
     N1 = len(PL)
 
-    # For each window edge Fi->Fi+1
     for i in range(len(PW)):
         Fi = PW[i]
         Fi1 = PW[(i + 1) % len(PW)]
@@ -93,8 +79,6 @@ def sutherland_hodgman(PL, PW):
         PS = []
         N2 = 0
 
-        # Iterate over vertices, keeping track of previous vertex S
-        F = PL[0]
         S = PL[-1]
 
         for Pj in PL:
@@ -109,7 +93,6 @@ def sutherland_hodgman(PL, PW):
                 PS.append(S)
                 N2 += 1
 
-        # If nothing survived this clipping edge -> empty
         if N2 == 0:
             return []
 
@@ -127,7 +110,6 @@ EPS = 1e-9
 
 
 def _area2(poly):
-    """Signed doubled area for a polygon (not closed)."""
     a = 0.0
     n = len(poly)
     for i in range(n):
@@ -138,19 +120,16 @@ def _area2(poly):
 
 
 def _ensure_ccw(poly):
-    """Return a CCW-oriented copy (expects poly not closed)."""
     if _area2(poly) < 0:
         return list(reversed(poly))
     return poly[:]
 
 
 def _cross(a, b, c):
-    """Cross product of AB x AC."""
     return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
 
 
 def _point_in_triangle(p, a, b, c):
-    """Inclusive test (with EPS) for point inside triangle abc (CCW)."""
     c1 = _cross(a, b, p)
     c2 = _cross(b, c, p)
     c3 = _cross(c, a, p)
@@ -158,11 +137,6 @@ def _point_in_triangle(p, a, b, c):
 
 
 def triangulate_ear_clipping(polygon):
-    """
-    Ear clipping triangulation.
-    Input: polygon as list [(x,y), ...] (NOT closed), simple polygon expected.
-    Output: list of triangles, each triangle is [(x,y),(x,y),(x,y)]
-    """
     if len(polygon) < 3:
         return []
     if len(polygon) == 3:
@@ -176,7 +150,7 @@ def triangulate_ear_clipping(polygon):
         a = poly[i_prev]
         b = poly[i_curr]
         c = poly[i_next]
-        return _cross(a, b, c) > EPS  # strict convex for CCW
+        return _cross(a, b, c) > EPS
 
     guard = 0
     max_guard = len(V) * len(V) + 10
@@ -195,7 +169,6 @@ def triangulate_ear_clipping(polygon):
 
             a, b, c = poly[i_prev], poly[i_curr], poly[i_next]
 
-            # No other vertex inside the ear triangle
             any_inside = False
             for j in V:
                 if j in (i_prev, i_curr, i_next):
@@ -206,14 +179,12 @@ def triangulate_ear_clipping(polygon):
             if any_inside:
                 continue
 
-            # Ear found
             triangles.append([a, b, c])
             del V[k]
             ear_found = True
             break
 
         if not ear_found:
-            # Probably self-intersecting or degenerate polygon
             break
 
     if len(V) == 3:
@@ -223,17 +194,10 @@ def triangulate_ear_clipping(polygon):
 
 
 def clip_subject_with_window_triangulation(subject_polygon, window_polygon):
-    """
-    Clip a subject polygon with a (possibly concave) window by:
-    - triangulating the window (ear clipping)
-    - clipping subject against each triangle using existing S-H
-    Returns: list of clipped polygons (pieces)
-    """
     if len(subject_polygon) < 3 or len(window_polygon) < 3:
         return []
 
     win = window_polygon[:]
-    # If user provided a closed polygon, drop last duplicate
     if len(win) >= 2 and win[0] == win[-1]:
         win = win[:-1]
 
