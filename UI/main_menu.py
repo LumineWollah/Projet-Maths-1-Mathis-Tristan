@@ -14,7 +14,7 @@ class MainMenu(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Menu Principal")
-        self.geometry("500x300")
+        self.geometry("500x400")
 
         ttk.Label(self, text="Mazette j'adore les maths",
                   font=("Arial", 22)).pack(pady=25)

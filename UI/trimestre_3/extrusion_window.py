@@ -6,11 +6,15 @@ from tkinter import ttk
 from typing import List, Optional, Tuple, Union
 
 from algo.trimestre_3.courbes_3d import TypeCourbe
-from algo.trimestre_3.extrusion import extruder
+from algo.trimestre_3.extrusion import (
+    extruder,
+    extruder_revolution_z,
+    extruder_simple,
+)
 from algo.trimestre_3.maillage import maillage_depuis_grille
 from algo.trimestre_3.profil_courbe import echantillonner_profil_2d
 from algo.trimestre_3.texture import grille_uv_depuis_grille
-from algo.trimestre_3.vecteurs import Point3, somme_points
+from algo.trimestre_3.vecteurs import Point3
 from UI.trimestre_3.widgets.canvas_3d import Canvas3D
 
 Point2 = Tuple[float, float]
@@ -19,32 +23,42 @@ Point2 = Tuple[float, float]
 class ExtrusionWindow(tk.Toplevel):
     def __init__(self, master=None):
         super().__init__(master)
-        self.title("Extrusion - courbe 2D + surface 3D")
+        self.title("Extrusion")
         self.geometry("1200x750")
 
-        # points de contrôle 2D du profil (pas le profil final, on l'échantillonne)
+        # points de contrôle 2D du profil
         self.points_controle_2d: List[Point2] = [
-            (-0.45, -0.35),
-            (-0.15, 0.55),
-            (0.25, 0.45),
-            (0.5, -0.25),
+            (0.25, -0.45),
+            (0.60, -0.15),
+            (0.42, 0.25),
+            (0.70, 0.55),
         ]
         self.drag_ctrl: Optional[Union[int, str]] = None
         self.drag_offset = (0.0, 0.0)
 
-        self.trajectoire_3d: List[Point3] = [
+        # Extrusion généralisée demandée par le sujet : trajectoire dans le plan z = 0
+        self.trajectoire_plane_z0: List[Point3] = [
+            (-3.0, -0.6, 0.0),
+            (-1.0, 1.2, 0.0),
+            (1.0, -1.2, 0.0),
+            (3.0, 0.6, 0.0),
+        ]
+
+        # Bonus : trajectoire 3D quelconque
+        self.trajectoire_3d_bonus: List[Point3] = [
             (-3.0, 0.0, 0.0),
             (-1.0, 1.0, 1.0),
             (1.0, 1.0, -1.0),
             (3.0, 0.0, 0.0),
         ]
 
+        self.var_primitive = tk.StringVar(value="simple")
         self.var_type_profil = tk.StringVar(value="bezier")
         self.var_type_traj = tk.StringVar(value="bezier")
-        self.var_hauteur = tk.DoubleVar(value=1.0)
+        self.var_hauteur = tk.DoubleVar(value=2.0)
         self.var_echelle_debut = tk.DoubleVar(value=1.0)
         self.var_echelle_fin = tk.DoubleVar(value=0.6)
-        self.var_nb_traj = tk.IntVar(value=25)
+        self.var_nb_traj = tk.IntVar(value=32)
         self.var_nb_profil = tk.IntVar(value=32)
         self.var_texture = tk.BooleanVar(value=False)
 
@@ -57,7 +71,7 @@ class ExtrusionWindow(tk.Toplevel):
         panneau = ttk.Panedwindow(self, orient="horizontal")
         panneau.pack(fill="both", expand=True, padx=8, pady=8)
 
-        gauche = ttk.Frame(panneau, width=380)
+        gauche = ttk.Frame(panneau, width=390)
         droite = ttk.Frame(panneau)
         panneau.add(gauche, weight=1)
         panneau.add(droite, weight=3)
@@ -73,49 +87,99 @@ class ExtrusionWindow(tk.Toplevel):
         ctrl = ttk.Frame(gauche)
         ctrl.pack(fill="x", padx=4, pady=6)
 
-        ttk.Label(ctrl, text="Courbe profil").grid(row=0, column=0, sticky="w")
+        ttk.Label(ctrl, text="Primitive").grid(row=0, column=0, sticky="w")
+        prim_btns = ttk.Frame(ctrl)
+        prim_btns.grid(row=0, column=1, sticky="w")
+        for txt, val in [
+            ("Extrusion simple", "simple"),
+            ("Révolution autour de z", "revolution"),
+            ("Extrusion généralisée z=0", "generalisee"),
+            ("Bonus - courbe 3D quelconque", "bonus_3d"),
+        ]:
+            ttk.Radiobutton(
+                prim_btns,
+                text=txt,
+                value=val,
+                variable=self.var_primitive,
+                command=self._recalculer_extrusion,
+            ).pack(anchor="w")
+
+        ttk.Label(ctrl, text="Courbe profil").grid(row=1, column=0, sticky="w", pady=(8, 0))
         profil_btns = ttk.Frame(ctrl)
-        profil_btns.grid(row=0, column=1, sticky="w")
+        profil_btns.grid(row=1, column=1, sticky="w", pady=(8, 0))
         for txt, val in [("Bézier", "bezier"), ("B-Spline", "bspline"), ("NURBS", "nurbs")]:
             ttk.Radiobutton(
-                profil_btns, text=txt, value=val,
+                profil_btns,
+                text=txt,
+                value=val,
                 variable=self.var_type_profil,
-                command=self._dessiner_canvas_2d,
+                command=self._profil_change,
             ).pack(side="left")
 
-        ttk.Label(ctrl, text="Courbe trajectoire").grid(row=1, column=0, sticky="w", pady=2)
+        ttk.Label(ctrl, text="Courbe trajectoire").grid(row=2, column=0, sticky="w", pady=2)
         traj_btns = ttk.Frame(ctrl)
-        traj_btns.grid(row=1, column=1, sticky="w")
+        traj_btns.grid(row=2, column=1, sticky="w")
         for txt, val in [("Bézier", "bezier"), ("B-Spline", "bspline"), ("NURBS", "nurbs")]:
             ttk.Radiobutton(
-                traj_btns, text=txt, value=val,
+                traj_btns,
+                text=txt,
+                value=val,
                 variable=self.var_type_traj,
+                command=self._recalculer_extrusion,
             ).pack(side="left")
 
-        ttk.Label(ctrl, text="Hauteur profil").grid(row=2, column=0, sticky="w", pady=4)
-        ttk.Scale(ctrl, from_=0.2, to=3.0, variable=self.var_hauteur).grid(row=2, column=1, sticky="ew")
+        ttk.Label(ctrl, text="Hauteur").grid(row=3, column=0, sticky="w", pady=4)
+        ttk.Scale(
+            ctrl,
+            from_=0.2,
+            to=4.0,
+            variable=self.var_hauteur,
+        ).grid(row=3, column=1, sticky="ew")
 
-        ttk.Label(ctrl, text="Échelle début").grid(row=3, column=0, sticky="w")
-        ttk.Scale(ctrl, from_=0.2, to=2.0, variable=self.var_echelle_debut).grid(row=3, column=1, sticky="ew")
+        ttk.Label(ctrl, text="Échelle début / rayon").grid(row=4, column=0, sticky="w")
+        ttk.Scale(
+            ctrl,
+            from_=0.2,
+            to=2.0,
+            variable=self.var_echelle_debut,
+        ).grid(row=4, column=1, sticky="ew")
 
-        ttk.Label(ctrl, text="Échelle fin").grid(row=4, column=0, sticky="w")
-        ttk.Scale(ctrl, from_=0.1, to=2.0, variable=self.var_echelle_fin).grid(row=4, column=1, sticky="ew")
+        ttk.Label(ctrl, text="Échelle fin").grid(row=5, column=0, sticky="w")
+        ttk.Scale(
+            ctrl,
+            from_=0.1,
+            to=2.0,
+            variable=self.var_echelle_fin,
+        ).grid(row=5, column=1, sticky="ew")
 
-        ttk.Label(ctrl, text="Pas trajectoire").grid(row=5, column=0, sticky="w")
-        ttk.Spinbox(ctrl, from_=8, to=60, width=5, textvariable=self.var_nb_traj).grid(row=5, column=1, sticky="w")
+        ttk.Label(ctrl, text="Pas trajectoire").grid(row=6, column=0, sticky="w")
+        ttk.Spinbox(
+            ctrl,
+            from_=8,
+            to=80,
+            width=5,
+            textvariable=self.var_nb_traj,
+        ).grid(row=6, column=1, sticky="w")
 
-        ttk.Label(ctrl, text="Pas profil").grid(row=6, column=0, sticky="w")
-        ttk.Spinbox(ctrl, from_=8, to=80, width=5, textvariable=self.var_nb_profil).grid(row=6, column=1, sticky="w")
+        ttk.Label(ctrl, text="Pas profil").grid(row=7, column=0, sticky="w")
+        ttk.Spinbox(
+            ctrl,
+            from_=8,
+            to=80,
+            width=5,
+            textvariable=self.var_nb_profil,
+        ).grid(row=7, column=1, sticky="w")
 
-        btns = ttk.Frame(ctrl)
-        btns.grid(row=7, column=0, columnspan=2, pady=10)
         ttk.Checkbutton(
-            ctrl, text="Texture (Damier)",
+            ctrl,
+            text="Texture (Damier)",
             variable=self.var_texture,
             command=self._toggle_texture,
         ).grid(row=8, column=0, columnspan=2, sticky="w", pady=4)
 
-        ttk.Button(btns, text="Extruder", command=self._recalculer_extrusion).pack(side="left", padx=4)
+        btns = ttk.Frame(ctrl)
+        btns.grid(row=9, column=0, columnspan=2, pady=10)
+        ttk.Button(btns, text="Générer", command=self._recalculer_extrusion).pack(side="left", padx=4)
         ttk.Button(btns, text="Effacer points", command=self._effacer_points).pack(side="left", padx=4)
         ttk.Button(btns, text="Profil demo", command=self._profil_demo).pack(side="left", padx=4)
 
@@ -123,7 +187,7 @@ class ExtrusionWindow(tk.Toplevel):
 
         ttk.Label(
             droite,
-            text="Vue 3D : glisser = wireframe, relâcher = rendu ombré",
+            text="Vue 3D : glisser = Wireframe, relâcher = rendu ombré",
         ).pack(anchor="w", padx=4)
 
         self.canvas3d = Canvas3D(droite, largeur=760, hauteur=660)
@@ -160,15 +224,19 @@ class ExtrusionWindow(tk.Toplevel):
             self.drag_ctrl = hit
             self.drag_offset = (px - event.x, py - event.y)
             return
+
         self.points_controle_2d.append(self._vers_uv(event.x, event.y))
         self._dessiner_canvas_2d()
+        self._recalculer_extrusion()
 
     def _drag_2d(self, event):
         if self.drag_ctrl is None:
             return
+
         uv = self._vers_uv(event.x + self.drag_offset[0], event.y + self.drag_offset[1])
         self.points_controle_2d[self.drag_ctrl] = uv
         self._dessiner_canvas_2d()
+        self._recalculer_extrusion()
 
     def _suppr_point_2d(self, event):
         hit = self._hit_controle(event.x, event.y)
@@ -176,6 +244,7 @@ class ExtrusionWindow(tk.Toplevel):
             self.points_controle_2d.pop(hit)
             self.drag_ctrl = None
             self._dessiner_canvas_2d()
+            self._recalculer_extrusion()
 
     def _effacer_points(self):
         self.points_controle_2d = []
@@ -183,9 +252,17 @@ class ExtrusionWindow(tk.Toplevel):
 
     def _profil_demo(self):
         self.points_controle_2d = [
-            (-0.45, -0.35), (-0.15, 0.55), (0.25, 0.45), (0.5, -0.25),
+            (0.25, -0.45),
+            (0.60, -0.15),
+            (0.42, 0.25),
+            (0.70, 0.55),
         ]
         self._dessiner_canvas_2d()
+        self._recalculer_extrusion()
+
+    def _profil_change(self):
+        self._dessiner_canvas_2d()
+        self._recalculer_extrusion()
 
     def _dessiner_canvas_2d(self):
         self.canvas_2d.delete("all")
@@ -211,12 +288,39 @@ class ExtrusionWindow(tk.Toplevel):
                 b = self._vers_canvas(courbe[i + 1])
                 self.canvas_2d.create_line(*a, *b, fill="#1a5fcc", width=2)
 
+        if self.var_primitive.get() == "revolution":
+            self.canvas_2d.create_line(170, 20, 170, 320, fill="#ff9999", width=2)
+            self.canvas_2d.create_text(
+                178,
+                30,
+                text="axe z",
+                fill="#cc5555",
+                anchor="w",
+                font=("Arial", 8),
+            )
+
         for i, uv in enumerate(pts):
             x, y = self._vers_canvas(uv)
             self.canvas_2d.create_oval(x - 5, y - 5, x + 5, y + 5, fill="#cc3333", outline="#881111")
             self.canvas_2d.create_text(x + 10, y - 10, text=str(i), fill="#555555", font=("Arial", 8))
 
+    def _centre_grille(self, grille: List[List[Point3]]) -> Point3:
+        sx = sy = sz = 0.0
+        n = 0
+        for ligne in grille:
+            for p in ligne:
+                sx += p[0]
+                sy += p[1]
+                sz += p[2]
+                n += 1
+
+        if n == 0:
+            return (0.0, 0.0, 0.0)
+        return (sx / n, sy / n, sz / n)
+
     def _recalculer_extrusion(self):
+        self._dessiner_canvas_2d()
+
         if len(self.points_controle_2d) < 2:
             return
 
@@ -228,22 +332,50 @@ class ExtrusionWindow(tk.Toplevel):
         if len(profil_2d) < 2:
             return
 
-        grille = extruder(
-            profil_2d=profil_2d,
-            points_traj=self.trajectoire_3d,
-            nb_traj=int(self.var_nb_traj.get()),
-            type_courbe=self.var_type_traj.get(),
-            hauteur=float(self.var_hauteur.get()),
-            echelle_debut=float(self.var_echelle_debut.get()),
-            echelle_fin=float(self.var_echelle_fin.get()),
-        )
+        primitive = self.var_primitive.get()
+
+        if primitive == "simple":
+            grille = extruder_simple(
+                profil_2d=profil_2d,
+                hauteur=float(self.var_hauteur.get()),
+                echelle_debut=float(self.var_echelle_debut.get()),
+                echelle_fin=float(self.var_echelle_fin.get()),
+            )
+        elif primitive == "revolution":
+            grille = extruder_revolution_z(
+                profil_2d=profil_2d,
+                nb_angles=int(self.var_nb_traj.get()),
+                hauteur=float(self.var_hauteur.get()),
+                echelle_rayon=float(self.var_echelle_debut.get()),
+            )
+        elif primitive == "generalisee":
+            grille = extruder(
+                profil_2d=profil_2d,
+                points_traj=self.trajectoire_plane_z0,
+                nb_traj=int(self.var_nb_traj.get()),
+                type_courbe=self.var_type_traj.get(),
+                hauteur=float(self.var_hauteur.get()),
+                echelle_debut=float(self.var_echelle_debut.get()),
+                echelle_fin=float(self.var_echelle_fin.get()),
+            )
+        else:
+            grille = extruder(
+                profil_2d=profil_2d,
+                points_traj=self.trajectoire_3d_bonus,
+                nb_traj=int(self.var_nb_traj.get()),
+                type_courbe=self.var_type_traj.get(),
+                hauteur=float(self.var_hauteur.get()),
+                echelle_debut=float(self.var_echelle_debut.get()),
+                echelle_fin=float(self.var_echelle_fin.get()),
+            )
+
         if not grille:
             return
 
         _, triangles = maillage_depuis_grille(grille)
-        centre = somme_points(self.trajectoire_3d)
-        n = len(self.trajectoire_3d)
-        self.canvas3d.projecteur.definir_cible((centre[0] / n, centre[1] / n, centre[2] / n))
+        centre = self._centre_grille(grille)
+        self.canvas3d.projecteur.definir_cible(centre)
+
         grille_uv = grille_uv_depuis_grille(grille)
         self.canvas3d.set_surface(grille, triangles, grille_uv)
         self.canvas3d.set_texture_actif(self.var_texture.get())
