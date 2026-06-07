@@ -1,4 +1,4 @@
-"""Algorithmes de géométrie graphique (découpage, remplissage, courbes)."""
+"""Algorithmes de géométrie graphique — Semestre 1 (découpage, remplissage, courbes 2D)."""
 
 from algo.sutherland_hodgman import (
     sutherland_hodgman,
