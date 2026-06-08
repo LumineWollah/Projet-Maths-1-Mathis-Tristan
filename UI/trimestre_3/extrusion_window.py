@@ -289,12 +289,12 @@ class ExtrusionWindow(tk.Toplevel):
                 self.canvas_2d.create_line(*a, *b, fill="#1a5fcc", width=2)
 
         if self.var_primitive.get() == "revolution":
-            self.canvas_2d.create_line(170, 20, 170, 320, fill="#ff9999", width=2)
+            self.canvas_2d.create_line(170, 20, 170, 320, fill="#4376c9", width=2)
             self.canvas_2d.create_text(
                 178,
                 30,
                 text="axe z",
-                fill="#cc5555",
+                fill="#1a5fcc",
                 anchor="w",
                 font=("Arial", 8),
             )
